@@ -46,10 +46,14 @@
       font-size: 0.9rem;
     }
 
-    .controls input[type="number"] {
-      width: 4rem;
+    .controls input[type="number"],
+    .controls select {
       padding: 0.15rem 0.35rem;
       font-size: 0.85rem;
+    }
+
+    .controls input[type="number"] {
+      width: 4rem;
     }
 
     .controls button {
@@ -89,11 +93,11 @@
     #cardGrid {
       display: grid;
       grid-template-columns: repeat(5, 3.5in);
-      grid-auto-rows: 4.5in; /* each card is 4.5in tall (two 2.25in halves) */
+      grid-auto-rows: 4.5in; /* each card is 4.5in tall (two 2.25in halves or full-height single cards) */
       gap: 0; /* no space between cards */
     }
 
-    /* Card styling */
+    /* Base card styling */
     .card {
       width: 3.5in;
       height: 4.5in;
@@ -103,6 +107,7 @@
       position: relative;
     }
 
+    /* Permanent: two halves */
     .card-half {
       width: 100%;
       height: 50%;
@@ -161,7 +166,7 @@
       border: 1px solid currentColor;
       padding: 0.08in;
       margin-top: 0.02in;
-      white-space: normal;
+      white-space: pre-line;
       overflow: hidden;
     }
 
@@ -181,6 +186,29 @@
       border: 1px solid #ccc;
       background: #ddd;
       object-fit: contain;
+    }
+
+    /* Hero / Instant / Flip full-face cards */
+    .card.hero,
+    .card.instant,
+    .card.flip {
+      display: flex;
+      flex-direction: column;
+      padding: 0.2in;
+    }
+
+    .card.hero .card-text,
+    .card.instant .card-text,
+    .card.flip .card-text {
+      margin-top: 0.08in;
+    }
+
+    .card.instant {
+      background: #ddd;
+    }
+
+    .card.flip {
+      background: #fff;
     }
 
     @media print {
@@ -207,13 +235,21 @@
   <div class="section">
     <h2>1. Generate card sheet from CSV</h2>
     <div class="controls">
+      <label for="cardType">Card type:</label>
+      <select id="cardType">
+        <option value="permanent" selected>Permanent</option>
+        <option value="hero">Hero</option>
+        <option value="instant">Instant</option>
+        <option value="flip">Flip</option>
+      </select>
+
       <label for="csvFile">Upload CSV:</label>
       <input type="file" id="csvFile" accept=".csv" />
 
       <button id="downloadBtn" disabled>Download sheet as JPG</button>
 
       <span class="hint">
-        Cards are 3.5" × 4.5" (two 3.5" × 2.25" halves), 5 across.
+        Cards are 3.5" × 4.5" (5 across). Choose type, then upload the matching CSV.
       </span>
     </div>
 
@@ -224,7 +260,7 @@
     </div>
 
     <div id="status" class="empty-message">
-      Upload your CSV to generate cards.
+      Select card type and upload your CSV to generate cards.
     </div>
   </div>
 
@@ -322,8 +358,10 @@
       return rows;
     }
 
-    // Convert raw CSV rows into light/dark card pairs
-    function buildCardPairs(rows) {
+    /*********** PERMANENT (existing behavior) ***********/
+
+    // Convert raw CSV rows into light/dark permanent card pairs
+    function buildPermanentPairs(rows) {
       const pairs = [];
       if (!rows || rows.length < 2) return pairs;
 
@@ -377,7 +415,7 @@
       return pairs;
     }
 
-    function buildHalfContents(data) {
+    function buildPermanentFace(data) {
       const container = document.createElement('div');
       container.style.display = 'flex';
       container.style.flexDirection = 'column';
@@ -414,14 +452,14 @@
       return container;
     }
 
-    function renderCards(pairs) {
+    function renderPermanentCards(pairs) {
       const grid = document.getElementById('cardGrid');
       const status = document.getElementById('status');
       const downloadBtn = document.getElementById('downloadBtn');
       grid.innerHTML = '';
 
       if (!pairs.length) {
-        status.textContent = 'No cards found in CSV.';
+        status.textContent = 'No permanent cards found in CSV.';
         downloadBtn.disabled = true;
         return;
       }
@@ -432,11 +470,11 @@
 
         const lightHalf = document.createElement('div');
         lightHalf.className = 'card-half light';
-        lightHalf.appendChild(buildHalfContents(pair.light));
+        lightHalf.appendChild(buildPermanentFace(pair.light));
 
         const darkHalf = document.createElement('div');
         darkHalf.className = 'card-half dark';
-        darkHalf.appendChild(buildHalfContents(pair.dark));
+        darkHalf.appendChild(buildPermanentFace(pair.dark));
 
         cardEl.appendChild(lightHalf);
         cardEl.appendChild(darkHalf);
@@ -444,11 +482,231 @@
         grid.appendChild(cardEl);
       });
 
-      status.textContent = `Generated ${pairs.length} cards.`;
+      status.textContent = `Generated ${pairs.length} permanent cards.`;
       downloadBtn.disabled = false;
     }
 
-    // File upload for CSV
+    /*********** HERO CARDS ***********/
+
+    // Hero CSV: Hero Name,HP,Actions (Choose one),Passives,Notes
+    function buildHeroes(rows) {
+      const heroes = [];
+      if (!rows || rows.length < 2) return heroes;
+
+      let current = null;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const name = (row[0] || '').trim();
+        const hp = (row[1] || '').trim();
+        const action = (row[2] || '').trim();
+        const passive = (row[3] || '').trim();
+
+        const hasCoreContent = name || hp || action || passive;
+
+        if (!hasCoreContent) {
+          continue; // skip blank / notes-only rows
+        }
+
+        if (name) {
+          // Start a new hero
+          if (current) heroes.push(current);
+          current = {
+            name,
+            hp,
+            actions: [],
+            passives: []
+          };
+        }
+
+        if (!current) {
+          // If for some reason we have actions/passives before a name, skip
+          continue;
+        }
+
+        if (action) current.actions.push(action);
+        if (passive) current.passives.push(passive);
+      }
+
+      if (current) heroes.push(current);
+      return heroes;
+    }
+
+    function renderHeroCards(heroes) {
+      const grid = document.getElementById('cardGrid');
+      const status = document.getElementById('status');
+      const downloadBtn = document.getElementById('downloadBtn');
+      grid.innerHTML = '';
+
+      if (!heroes.length) {
+        status.textContent = 'No heroes found in CSV.';
+        downloadBtn.disabled = true;
+        return;
+      }
+
+      heroes.forEach(hero => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card hero';
+
+        const titleRow = document.createElement('div');
+        titleRow.className = 'card-title-row';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'card-name';
+        nameEl.textContent = hero.name || '';
+
+        const corner = document.createElement('div');
+        corner.className = 'card-corner';
+        corner.textContent = hero.hp || ''; // HP in the bubble
+
+        titleRow.appendChild(nameEl);
+        titleRow.appendChild(corner);
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'card-subtitle';
+        subtitle.textContent = 'Hero';
+
+        const text = document.createElement('div');
+        text.className = 'card-text';
+
+        const lines = [];
+        if (hero.actions.length) {
+          lines.push('Actions:');
+          hero.actions.forEach(a => lines.push('- ' + a));
+        }
+        if (hero.passives.length) {
+          if (lines.length) lines.push('');
+          lines.push('Passives:');
+          hero.passives.forEach(p => lines.push('- ' + p));
+        }
+        text.textContent = lines.join('\n');
+
+        cardEl.appendChild(titleRow);
+        cardEl.appendChild(subtitle);
+        cardEl.appendChild(text);
+
+        grid.appendChild(cardEl);
+      });
+
+      status.textContent = `Generated ${heroes.length} hero cards.`;
+      downloadBtn.disabled = false;
+    }
+
+    /*********** INSTANT CARDS ***********/
+
+    // Instant CSV: Name,Cost,Effect (with blank spacer rows)
+    function buildInstants(rows) {
+      const instants = [];
+      if (!rows || rows.length < 2) return instants;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const name = (row[0] || '').trim();
+        const cost = (row[1] || '').trim();
+        const effect = (row[2] || '').trim();
+
+        if (!name && !cost && !effect) continue;
+
+        instants.push({ name, cost, effect });
+      }
+      return instants;
+    }
+
+    function renderInstantCards(instants) {
+      const grid = document.getElementById('cardGrid');
+      const status = document.getElementById('status');
+      const downloadBtn = document.getElementById('downloadBtn');
+      grid.innerHTML = '';
+
+      if (!instants.length) {
+        status.textContent = 'No instants found in CSV.';
+        downloadBtn.disabled = true;
+        return;
+      }
+
+      instants.forEach(card => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card instant';
+
+        const titleRow = document.createElement('div');
+        titleRow.className = 'card-title-row';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'card-name';
+        nameEl.textContent = card.name || '';
+
+        const corner = document.createElement('div');
+        corner.className = 'card-corner';
+        corner.textContent = (card.cost || '').replace(' mana', '') || '';
+
+        titleRow.appendChild(nameEl);
+        titleRow.appendChild(corner);
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'card-subtitle';
+        subtitle.textContent = card.cost || '';
+
+        const text = document.createElement('div');
+        text.className = 'card-text';
+        text.textContent = card.effect || '';
+
+        cardEl.appendChild(titleRow);
+        cardEl.appendChild(subtitle);
+        cardEl.appendChild(text);
+
+        grid.appendChild(cardEl);
+      });
+
+      status.textContent = `Generated ${instants.length} instant cards.`;
+      downloadBtn.disabled = false;
+    }
+
+    /*********** FLIP CARDS (deck of flip effects) ***********/
+
+    // Flip CSV: Effect, Copies, Chance, etc. We only care about Effect.
+    function buildFlipCards(rows) {
+      const flips = [];
+      if (!rows || rows.length < 2) return flips;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const effect = (row[0] || '').trim();
+        if (!effect) continue;
+        flips.push({ effect });
+      }
+      return flips;
+    }
+
+    function renderFlipCards(flips) {
+      const grid = document.getElementById('cardGrid');
+      const status = document.getElementById('status');
+      const downloadBtn = document.getElementById('downloadBtn');
+      grid.innerHTML = '';
+
+      if (!flips.length) {
+        status.textContent = 'No flip cards found in CSV.';
+        downloadBtn.disabled = true;
+        return;
+      }
+
+      flips.forEach(card => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card flip';
+
+        const text = document.createElement('div');
+        text.className = 'card-text';
+        text.textContent = card.effect || '';
+
+        cardEl.appendChild(text);
+        grid.appendChild(cardEl);
+      });
+
+      status.textContent = `Generated ${flips.length} flip cards.`;
+      downloadBtn.disabled = false;
+    }
+
+    /*********** CSV FILE HANDLING ***********/
+
     document.getElementById('csvFile').addEventListener('change', function (e) {
       const file = e.target.files[0];
       const status = document.getElementById('status');
@@ -458,16 +716,30 @@
         return;
       }
 
+      const type = document.getElementById('cardType').value;
+
       const reader = new FileReader();
       reader.onload = function (evt) {
         const text = evt.target.result;
         try {
           const rows = parseCSV(text);
-          const pairs = buildCardPairs(rows);
-          renderCards(pairs);
+          if (type === 'permanent') {
+            const pairs = buildPermanentPairs(rows);
+            renderPermanentCards(pairs);
+          } else if (type === 'hero') {
+            const heroes = buildHeroes(rows);
+            renderHeroCards(heroes);
+          } else if (type === 'instant') {
+            const instants = buildInstants(rows);
+            renderInstantCards(instants);
+          } else if (type === 'flip') {
+            const flips = buildFlipCards(rows);
+            renderFlipCards(flips);
+          }
         } catch (err) {
           console.error(err);
-          status.textContent = 'Error parsing CSV. Check the format and try again.';
+          status.textContent = 'Error parsing CSV. Check the format for this card type and try again.';
+          document.getElementById('downloadBtn').disabled = true;
         }
       };
       reader.readAsText(file);
