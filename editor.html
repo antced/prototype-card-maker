@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Flip Card Sheet Generator & Splitter</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #eee;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+    }
+
+    h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.1rem;
+    }
+
+    .controls {
+      background: #fff;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+    }
+
+    .controls label {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .controls input[type="file"] {
+      font-size: 0.9rem;
+    }
+
+    .controls input[type="number"] {
+      width: 4rem;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.85rem;
+    }
+
+    .controls button {
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .controls button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      color: #555;
+    }
+
+    /* Sheet / grid layout */
+    .sheet-wrapper {
+      overflow: auto;
+      border: 1px solid #999;
+      background: #fff;
+      margin-bottom: 1rem;
+    }
+
+    .sheet {
+      /* 5 cards across, each 3.5in wide */
+      width: calc(3.5in * 5);
+      margin: 0 auto;
+    }
+
+    #cardGrid {
+      display: grid;
+      grid-template-columns: repeat(5, 3.5in);
+      grid-auto-rows: 4.5in; /* each card is 4.5in tall (two 2.25in halves) */
+      gap: 0; /* no space between cards */
+    }
+
+    /* Card styling */
+    .card {
+      width: 3.5in;
+      height: 4.5in;
+      border: 1px solid #000;
+      background: #fff;
+      font-family: "Times New Roman", serif;
+      position: relative;
+    }
+
+    .card-half {
+      width: 100%;
+      height: 50%;
+      padding: 0.15in 0.2in 0.2in 0.2in;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-half.light {
+      background: #fff;
+      color: #000;
+    }
+
+    .card-half.dark {
+      background: #000;
+      color: #fff;
+      transform: rotate(180deg); /* upside-down bottom half */
+    }
+
+    .card-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 0.05in;
+      font-size: 0.22in;
+    }
+
+    .card-name {
+      font-weight: 600;
+      line-height: 1.1;
+    }
+
+    .card-corner {
+      border-radius: 999px;
+      border: 1px solid currentColor;
+      width: 0.45in;
+      height: 0.45in;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.22in;
+      flex-shrink: 0;
+      margin-left: 0.1in;
+    }
+
+    .card-subtitle {
+      font-size: 0.16in;
+      margin-bottom: 0.05in;
+      font-style: italic;
+    }
+
+    .card-text {
+      font-size: 0.16in;
+      line-height: 1.15;
+      flex-grow: 1;
+      border: 1px solid currentColor;
+      padding: 0.08in;
+      margin-top: 0.02in;
+      white-space: normal;
+      overflow: hidden;
+    }
+
+    .empty-message {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      color: #444;
+    }
+
+    .section {
+      margin-bottom: 1.5rem;
+    }
+
+    .preview {
+      max-width: 300px;
+      max-height: 200px;
+      border: 1px solid #ccc;
+      background: #ddd;
+      object-fit: contain;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+        padding: 0;
+      }
+      .controls, .section-title {
+        display: none;
+      }
+      .sheet-wrapper {
+        border: none;
+      }
+      .sheet {
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Flip Card Sheet Generator & Image Splitter</h1>
+
+  <!-- SECTION 1: CSV → Cards → JPG -->
+  <div class="section">
+    <h2>1. Generate card sheet from CSV</h2>
+    <div class="controls">
+      <label for="csvFile">Upload CSV:</label>
+      <input type="file" id="csvFile" accept=".csv" />
+
+      <button id="downloadBtn" disabled>Download sheet as JPG</button>
+
+      <span class="hint">
+        Cards are 3.5" × 4.5" (two 3.5" × 2.25" halves), 5 across.
+      </span>
+    </div>
+
+    <div class="sheet-wrapper">
+      <div class="sheet">
+        <div id="cardGrid"></div>
+      </div>
+    </div>
+
+    <div id="status" class="empty-message">
+      Upload your CSV to generate cards.
+    </div>
+  </div>
+
+  <!-- SECTION 2: Image sheet splitter -->
+  <div class="section">
+    <h2>2. Split existing sprite sheet into individual JPG cards</h2>
+    <div class="controls">
+      <label for="sheetFile">Upload image sheet:</label>
+      <input type="file" id="sheetFile" accept="image/*" />
+
+      <label>
+        Columns:
+        <input type="number" id="colsInput" min="1" value="5">
+      </label>
+
+      <label>
+        Rows:
+        <input type="number" id="rowsInput" min="1" value="5">
+      </label>
+
+      <button id="splitBtn" disabled>Split & Download ZIP</button>
+
+      <span class="hint">
+        e.g. 5 × 5 grid → 25 card JPGs packaged as a ZIP.
+      </span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:0.85rem;margin-bottom:0.25rem;">Sheet preview:</div>
+        <img id="sheetPreview" class="preview" alt="No image loaded">
+      </div>
+      <div id="splitStatus" class="empty-message">
+        Upload a sprite sheet image, set columns/rows, then click “Split & Download ZIP”.
+      </div>
+    </div>
+  </div>
+
+  <!-- Libraries: html2canvas for DOM → image; JSZip + FileSaver for ZIP download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <script>
+    /***********************
+     *  CSV → CARD SHEET   *
+     ***********************/
+
+    // --- Simple CSV parser that handles quotes and commas ---
+    function parseCSV(text) {
+      const rows = [];
+      let currentRow = [];
+      let currentField = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+
+        if (inQuotes) {
+          if (char === '"') {
+            if (text[i + 1] === '"') {
+              currentField += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            currentField += char;
+          }
+        } else {
+          if (char === '"') {
+            inQuotes = true;
+          } else if (char === ',') {
+            currentRow.push(currentField);
+            currentField = '';
+          } else if (char === '\n') {
+            if (currentField.endsWith('\r')) {
+              currentField = currentField.slice(0, -1);
+            }
+            currentRow.push(currentField);
+            rows.push(currentRow);
+            currentRow = [];
+            currentField = '';
+          } else {
+            currentField += char;
+          }
+        }
+      }
+
+      if (currentField.length > 0 || currentRow.length > 0) {
+        currentRow.push(currentField);
+        rows.push(currentRow);
+      }
+
+      return rows;
+    }
+
+    // Convert raw CSV rows into light/dark card pairs
+    function buildCardPairs(rows) {
+      const pairs = [];
+      if (!rows || rows.length < 2) return pairs;
+
+      let i = 1; // skip header row
+
+      while (i < rows.length) {
+        let row = rows[i] || [];
+        const name = (row[0] || '').trim();
+        const alignment = (row[1] || '').trim();
+        const cost = (row[2] || '').trim();
+        const effect = (row[3] || '').trim();
+
+        const isBlank = !name && !alignment && !cost && !effect;
+
+        if (isBlank) {
+          i++;
+          continue;
+        }
+
+        if (name === 'Flip') {
+          i++;
+          continue;
+        }
+
+        const light = { name, alignment, cost, effect };
+
+        // Skip "Flip" row if present
+        if (rows[i + 1] && (rows[i + 1][0] || '').trim() === 'Flip') {
+          i += 2;
+        } else {
+          i++;
+        }
+
+        const darkRow = rows[i] || [];
+        const darkName = (darkRow[0] || '').trim();
+        const darkAlignment = (darkRow[1] || '').trim();
+        const darkCost = (darkRow[2] || '').trim();
+        const darkEffect = (darkRow[3] || '').trim();
+
+        const dark = {
+          name: darkName,
+          alignment: darkAlignment,
+          cost: darkCost,
+          effect: darkEffect
+        };
+
+        pairs.push({ light, dark });
+        i++;
+      }
+
+      return pairs;
+    }
+
+    function buildHalfContents(data) {
+      const container = document.createElement('div');
+      container.style.display = 'flex';
+      container.style.flexDirection = 'column';
+      container.style.height = '100%';
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'card-title-row';
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'card-name';
+      nameEl.textContent = data.name || '';
+
+      const corner = document.createElement('div');
+      corner.className = 'card-corner';
+      corner.textContent = (data.cost || '').replace(' mana', '') || '';
+
+      titleRow.appendChild(nameEl);
+      titleRow.appendChild(corner);
+
+      const subtitle = document.createElement('div');
+      subtitle.className = 'card-subtitle';
+      subtitle.textContent = data.alignment && data.cost
+        ? `${data.alignment} — ${data.cost}`
+        : (data.alignment || data.cost || '');
+
+      const text = document.createElement('div');
+      text.className = 'card-text';
+      text.textContent = data.effect || '';
+
+      container.appendChild(titleRow);
+      container.appendChild(subtitle);
+      container.appendChild(text);
+
+      return container;
+    }
+
+    function renderCards(pairs) {
+      const grid = document.getElementById('cardGrid');
+      const status = document.getElementById('status');
+      const downloadBtn = document.getElementById('downloadBtn');
+      grid.innerHTML = '';
+
+      if (!pairs.length) {
+        status.textContent = 'No cards found in CSV.';
+        downloadBtn.disabled = true;
+        return;
+      }
+
+      pairs.forEach(pair => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card';
+
+        const lightHalf = document.createElement('div');
+        lightHalf.className = 'card-half light';
+        lightHalf.appendChild(buildHalfContents(pair.light));
+
+        const darkHalf = document.createElement('div');
+        darkHalf.className = 'card-half dark';
+        darkHalf.appendChild(buildHalfContents(pair.dark));
+
+        cardEl.appendChild(lightHalf);
+        cardEl.appendChild(darkHalf);
+
+        grid.appendChild(cardEl);
+      });
+
+      status.textContent = `Generated ${pairs.length} cards.`;
+      downloadBtn.disabled = false;
+    }
+
+    // File upload for CSV
+    document.getElementById('csvFile').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      const status = document.getElementById('status');
+
+      if (!file) {
+        status.textContent = 'No file selected.';
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const text = evt.target.result;
+        try {
+          const rows = parseCSV(text);
+          const pairs = buildCardPairs(rows);
+          renderCards(pairs);
+        } catch (err) {
+          console.error(err);
+          status.textContent = 'Error parsing CSV. Check the format and try again.';
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // Download the card sheet as JPG
+    document.getElementById('downloadBtn').addEventListener('click', function () {
+      const sheet = document.querySelector('.sheet');
+      if (!sheet) return;
+
+      html2canvas(sheet, { scale: 2 }).then(canvas => {
+        canvas.toBlob(function (blob) {
+          const link = document.createElement('a');
+          link.download = 'cards-sheet.jpg';
+          link.href = URL.createObjectURL(blob);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(link.href);
+        }, 'image/jpeg', 0.95);
+      });
+    });
+
+    /**************************
+     *  IMAGE SHEET SPLITTER  *
+     **************************/
+
+    let loadedSheetImage = null;  // HTMLImageElement
+    let loadedSheetURL = null;    // object URL for cleanup
+
+    const sheetFileInput = document.getElementById('sheetFile');
+    const sheetPreview = document.getElementById('sheetPreview');
+    const splitBtn = document.getElementById('splitBtn');
+    const splitStatus = document.getElementById('splitStatus');
+
+    sheetFileInput.addEventListener('change', function (e) {
+      const file = e.target.files[0];
+
+      if (!file) {
+        loadedSheetImage = null;
+        sheetPreview.src = '';
+        sheetPreview.alt = 'No image loaded';
+        splitBtn.disabled = true;
+        splitStatus.textContent = 'Upload a sprite sheet image, set columns/rows, then click “Split & Download ZIP”.';
+        return;
+      }
+
+      if (loadedSheetURL) {
+        URL.revokeObjectURL(loadedSheetURL);
+        loadedSheetURL = null;
+      }
+
+      loadedSheetURL = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        loadedSheetImage = img;
+        sheetPreview.src = loadedSheetURL;
+        sheetPreview.alt = 'Sprite sheet preview';
+        splitBtn.disabled = false;
+        splitStatus.textContent = `Loaded image ${img.width}×${img.height} pixels. Enter columns/rows and split.`;
+      };
+      img.onerror = function () {
+        loadedSheetImage = null;
+        splitBtn.disabled = true;
+        sheetPreview.src = '';
+        sheetPreview.alt = 'No image loaded';
+        splitStatus.textContent = 'Could not load image. Try another file.';
+      };
+      img.src = loadedSheetURL;
+    });
+
+    function getIntValue(id) {
+      const v = parseInt(document.getElementById(id).value, 10);
+      return Number.isFinite(v) && v > 0 ? v : null;
+    }
+
+    // Helper: canvas.toBlob wrapped in a Promise
+    function canvasToBlob(canvas, type = 'image/jpeg', quality = 0.95) {
+      return new Promise(resolve => {
+        canvas.toBlob(blob => resolve(blob), type, quality);
+      });
+    }
+
+    splitBtn.addEventListener('click', async function () {
+      if (!loadedSheetImage) {
+        splitStatus.textContent = 'No sprite sheet loaded.';
+        return;
+      }
+
+      const cols = getIntValue('colsInput');
+      const rows = getIntValue('rowsInput');
+
+      if (!cols || !rows) {
+        splitStatus.textContent = 'Columns and rows must be positive whole numbers.';
+        return;
+      }
+
+      const img = loadedSheetImage;
+      const cardWidth = Math.floor(img.width / cols);
+      const cardHeight = Math.floor(img.height / rows);
+
+      if (cardWidth <= 0 || cardHeight <= 0) {
+        splitStatus.textContent = 'Grid too fine for this image size.';
+        return;
+      }
+
+      splitStatus.textContent = 'Splitting image and building ZIP...';
+
+      const zip = new JSZip();
+      const folder = zip.folder('cards');
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = cardWidth;
+      canvas.height = cardHeight;
+
+      let index = 0;
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const sx = col * cardWidth;
+          const sy = row * cardHeight;
+
+          ctx.clearRect(0, 0, cardWidth, cardHeight);
+          ctx.drawImage(
+            img,
+            sx, sy, cardWidth, cardHeight,
+            0, 0, cardWidth, cardHeight
+          );
+
+          const blob = await canvasToBlob(canvas, 'image/jpeg', 0.95);
+          const filename = `card_${row + 1}_${col + 1}.jpg`;
+          folder.file(filename, blob);
+          index++;
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      saveAs(zipBlob, 'cards.zip');
+
+      splitStatus.textContent = `Done! Generated ${index} JPG files in cards.zip.`;
+    });
+  </script>
+</body>
+</html>
